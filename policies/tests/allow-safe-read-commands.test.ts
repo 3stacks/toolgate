@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ALLOW, NEXT, type ToolCall } from "toolgate";
+import { ALLOW, NEXT, type ToolCall } from "@brycehanscomb/toolgate";
 import allowSafeReadCommands from "../allow-safe-read-commands";
 
 const PROJECT = "/home/user/project";
@@ -100,6 +100,45 @@ describe("allow-safe-read-commands", () => {
         expect(result.verdict).toBe(NEXT);
       });
     }
+  });
+
+  describe("allows jq within project", () => {
+    const allowed = [
+      `jq '.content.faqs[]' ${PROJECT}/data.json`,
+      `jq '.foo | select(.bar)' ${PROJECT}/config.json`,
+      `jq -r '.name' ${PROJECT}/package.json`,
+      `jq --raw-output '.items[]' ${PROJECT}/data.json`,
+      `jq -S '.' ${PROJECT}/data.json`,
+      `jq --arg name foo '.[$name]' ${PROJECT}/data.json`,
+    ];
+
+    for (const cmd of allowed) {
+      it(`allows: ${cmd}`, async () => {
+        const result = await allowSafeReadCommands.handler(bash(cmd));
+        expect(result.verdict).toBe(ALLOW);
+      });
+    }
+  });
+
+  describe("rejects jq with files outside project", () => {
+    const rejected = [
+      "jq '.' /etc/secrets.json",
+      "jq '.keys' /home/user/other/data.json",
+    ];
+
+    for (const cmd of rejected) {
+      it(`rejects: ${cmd}`, async () => {
+        const result = await allowSafeReadCommands.handler(bash(cmd));
+        expect(result.verdict).toBe(NEXT);
+      });
+    }
+  });
+
+  describe("allows jq with no file args (reads stdin) when cwd is in project", () => {
+    it("allows jq with filter only", async () => {
+      const result = await allowSafeReadCommands.handler(bash("jq '.'"));
+      expect(result.verdict).toBe(ALLOW);
+    });
   });
 
   describe("rejects bare commands when cwd is outside project", () => {

@@ -1,10 +1,13 @@
 import denyGitAddAndCommit from "./deny-git-add-and-commit";
 import denyWritesOutsideProject from "./deny-writes-outside-project";
 import denyGitDashC from "./deny-git-dash-c";
-import denyBashGrep from "./deny-bash-grep";
+import allowBashGrepInProject from "./allow-bash-grep-in-project";
 import denyCdChained from "./deny-cd-chained";
 import denyGitChained from "./deny-git-chained";
 import denyGhHeredoc from "./deny-gh-heredoc";
+import denySshCompound from "./deny-ssh-compound";
+import denyMixedPureChains from "./deny-mixed-pure-chains";
+import redirectPythonJsonToFx from "./redirect-python-json-to-fx";
 import redirectPlansToProject from "./redirect-plans-to-project";
 import allowBunTest from "./allow-bun-test";
 import allowGitAdd from "./allow-git-add";
@@ -31,14 +34,17 @@ import allowCdInProject from "./allow-cd-in-project";
 import allowGitWorktree from "./allow-git-worktree";
 import allowReadOnlyGitBranch from "./allow-git-branch";
 import allowGitCheckoutB from "./allow-git-checkout-b";
+import allowGitCommit from "./allow-git-commit";
 import allowSafeReadCommands from "./allow-safe-read-commands";
 import allowPureAndChains from "./allow-pure-and-chains";
 import allowReadPluginCache from "./allow-read-plugin-cache";
+import allowReadToolResults from "./allow-read-tool-results";
 import allowEditInProject from "./allow-edit-in-project";
 import allowWebSearch from "./allow-web-search";
 import allowWebFetch from "./allow-web-fetch";
 import allowMcpContext7 from "./allow-mcp-context7";
 import allowMcpIdeDiagnostics from "./allow-mcp-ide-diagnostics";
+import allowMcpPlaywright from "./allow-mcp-playwright";
 import allowPlanMode from "./allow-plan-mode";
 import allowMkdirInProject from "./allow-mkdir-in-project";
 import allowAskUser from "./allow-ask-user";
@@ -46,17 +52,36 @@ import allowToolSearch from "./allow-tool-search";
 import allowGitLocalRepo from "./allow-git-local-repo";
 import allowCronCrud from "./allow-cron-crud";
 import allowRmProjectTmp from "./allow-rm-project-tmp";
+import allowNpmInstall from "./allow-npm-install";
+import allowNpxSafe from "./allow-npx-safe";
+import allowPnpmPackageScript from "./allow-pnpm-package-script";
 import allowSleep from "./allow-sleep";
+import allowNonDestructiveGit from "./allow-non-destructive-git";
+import allowGhIssuePr from "./allow-gh-issue-pr";
+import allowTmux from "./allow-tmux";
+import allowAwsCli from "./allow-aws-cli";
+import allowBrew from "./allow-brew";
+import allowMcpAtlassian from "./allow-mcp-atlassian";
+import allowGo from "./allow-go";
+import allowLsof from "./allow-lsof";
+import allowCdk from "./allow-cdk";
+import allowDockerReadOnly from "./allow-docker-read-only";
+import allowDockerComposeExecTests from "./allow-docker-compose-exec-tests";
+import allowSubshellCdTest from "./allow-subshell-cd-test";
+import allowDockerComposeExecMysqlReadOnly from "./allow-docker-compose-exec-mysql-readonly";
+import allowToolgateCliReadOnly from "./allow-toolgate-cli-readonly";
 
 export const builtinPolicies = [
   denyGitAddAndCommit,
   redirectPlansToProject,
+  redirectPythonJsonToFx,
   denyWritesOutsideProject,
   denyGitDashC,
-  denyBashGrep,
   denyCdChained,
   denyGitChained,
   denyGhHeredoc,
+  denySshCompound,
+  denyMixedPureChains,
   allowBunTest,
   allowGitAdd,
   allowGitDiff,
@@ -73,7 +98,9 @@ export const builtinPolicies = [
   allowWebFetchClaude,
   allowTaskCrud,
   allowGhReadOnly,
+  allowGhIssuePr,
   allowBashFindInProject,
+  allowBashGrepInProject,
   allowSuperpowersSkills,
   allowGitCheckIgnore,
   allowGitRevParse,
@@ -81,21 +108,40 @@ export const builtinPolicies = [
   allowGitWorktree,
   allowReadOnlyGitBranch,
   allowGitCheckoutB,
+  allowGitCommit,
   allowGitStash,
   allowGitLocalRepo,
   allowSafeReadCommands,
   allowPureAndChains,
   allowReadPluginCache,
+  allowReadToolResults,
   allowEditInProject,
   allowWebSearch,
   allowWebFetch,
   allowMcpContext7,
   allowMcpIdeDiagnostics,
+  allowMcpPlaywright,
   allowMkdirInProject,
   allowPlanMode,
   allowAskUser,
   allowToolSearch,
   allowCronCrud,
   allowRmProjectTmp,
+  allowNpmInstall,
+  allowNpxSafe,
+  allowPnpmPackageScript,
   allowSleep,
+  allowNonDestructiveGit,
+  allowTmux,
+  allowAwsCli,
+  allowBrew,
+  allowMcpAtlassian,
+  allowGo,
+  allowLsof,
+  allowCdk,
+  allowDockerReadOnly,
+  allowDockerComposeExecTests,
+  allowSubshellCdTest,
+  allowDockerComposeExecMysqlReadOnly,
+  allowToolgateCliReadOnly,
 ];

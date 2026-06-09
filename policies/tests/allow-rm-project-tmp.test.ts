@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ALLOW, NEXT, type ToolCall } from "toolgate";
+import { ALLOW, NEXT, type ToolCall } from "@brycehanscomb/toolgate";
 import allowRmProjectTmp from "../allow-rm-project-tmp";
 
 const PROJECT = "/home/user/project";
@@ -17,7 +17,6 @@ describe("allow-rm-project-tmp", () => {
     const allowed = [
       "rm tmp/commit-msg.txt",
       "rm tmp/gh-comment.md",
-      "rm -f tmp/pr-body.md",
       "rm tmp/a.txt tmp/b.txt",
     ];
 
@@ -34,6 +33,40 @@ describe("allow-rm-project-tmp", () => {
       bash("rm /home/user/project/tmp/file.txt"),
     );
     expect(result.verdict).toBe(ALLOW);
+  });
+
+  describe("worktree (cwd inside project, separate tmp/)", () => {
+    const WORKTREE = `${PROJECT}/.claude/worktrees/my-branch`;
+
+    it("allows rm of cwd-local tmp/ files when cwd is inside project", async () => {
+      const result = await allowRmProjectTmp.handler(
+        bash("rm tmp/a.md tmp/b.md", WORKTREE),
+      );
+      expect(result.verdict).toBe(ALLOW);
+    });
+
+    it("does not allow rm of cwd-local tmp/ when cwd is outside project", async () => {
+      const result = await allowRmProjectTmp.handler(
+        bash("rm tmp/a.md", "/some/other/place"),
+      );
+      expect(result.verdict).toBe(NEXT);
+    });
+  });
+
+  describe("requires approval for -r or -f flags in tmp/", () => {
+    const flagged = [
+      "rm -f tmp/pr-body.md",
+      "rm -rf tmp/build-output",
+      "rm -r tmp/nested/dir",
+      "rm -fi tmp/file.txt",
+    ];
+
+    for (const cmd of flagged) {
+      it(`requires approval: ${cmd}`, async () => {
+        const result = await allowRmProjectTmp.handler(bash(cmd));
+        expect(result.verdict).toBe(NEXT);
+      });
+    }
   });
 
   describe("rejects rm outside project tmp/", () => {

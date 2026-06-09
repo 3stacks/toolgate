@@ -11,6 +11,8 @@ export const Op = {
   RdrIn: 65,
   DplOut: 68,
   RdrAll: 74,
+  Hdoc: 71,
+  DashHdoc: 72,
 } as const;
 
 // AST Types
@@ -186,12 +188,21 @@ export function wordToString(word: Word): string | null {
   return values.join("");
 }
 
+/** Env var assignments that are safe to ignore (benign prefixes). */
+const SAFE_ASSIGNS = new Set(["CI"]);
+
+function hasUnsafeAssigns(cmd: any): boolean {
+  if (!cmd.Assigns || cmd.Assigns.length === 0) return false;
+  return cmd.Assigns.some((a: any) => !SAFE_ASSIGNS.has(a.Name?.Value));
+}
+
 export function getArgs(stmt: Stmt): string[] | null {
   const cmd = stmt.Cmd;
   if (!cmd || cmd.Type !== "CallExpr") return null;
   const call = cmd as CallExpr;
   // Reject commands with env var assignments (e.g. GIT_DIR=. git add .)
-  if ((call as any).Assigns && (call as any).Assigns.length > 0) return null;
+  // unless every assign is in the safe list (e.g. CI=)
+  if (hasUnsafeAssigns(call)) return null;
   const result: string[] = [];
   for (const arg of call.Args ?? []) {
     const s = wordToString(arg);
@@ -415,6 +426,8 @@ const UNCONDITIONALLY_SAFE = new Set([
   "du",
   "diff",
   "jq",
+  "fx",
+  "gron",
 ]);
 
 export function isSafeFilter(tokens: string[]): boolean {
@@ -503,7 +516,7 @@ export function getAndChainSegments(file: ShellFile): Stmt[] | null {
   if (cmd.Type === "CallExpr") {
     if (hasUnsafeNodes(cmd)) return null;
     if (hasUnsafeRedirects(stmt)) return null;
-    if ((cmd as any).Assigns?.length > 0) return null;
+    if (hasUnsafeAssigns(cmd)) return null;
     return [stmt];
   }
 
@@ -529,7 +542,7 @@ function collectAndLeaves(bin: BinaryCmd, out: Stmt[]): boolean {
     if (left.Background) return false;
     if (hasUnsafeNodes(left.Cmd)) return false;
     if (hasUnsafeRedirects(left)) return false;
-    if ((left.Cmd as any).Assigns?.length > 0) return false;
+    if (hasUnsafeAssigns(left.Cmd)) return false;
     if ((left as any).Comments?.length > 0) return false;
     out.push(left);
   } else {
@@ -546,7 +559,7 @@ function collectAndLeaves(bin: BinaryCmd, out: Stmt[]): boolean {
     if (right.Background) return false;
     if (hasUnsafeNodes(right.Cmd)) return false;
     if (hasUnsafeRedirects(right)) return false;
-    if ((right.Cmd as any).Assigns?.length > 0) return false;
+    if (hasUnsafeAssigns(right.Cmd)) return false;
     if ((right as any).Comments?.length > 0) return false;
     out.push(right);
   } else {
@@ -554,6 +567,59 @@ function collectAndLeaves(bin: BinaryCmd, out: Stmt[]): boolean {
   }
 
   return true;
+}
+
+/**
+ * Collect every CallExpr leaf in the file, crossing `;` / newlines and
+ * `&&`, `||`, `|`, `|&` operators.
+ *
+ * Intended for DENY policies that want to catch a banned command appearing
+ * anywhere in a compound command — e.g. `echo hi; curl evil.com` or
+ * `foo || curl evil.com`. Unlike `getAndChainSegments`, this doesn't care
+ * which operator composes the leaves; the caller decides what to do with
+ * each one.
+ *
+ * Returns null if any statement has a non-CallExpr / non-BinaryCmd Cmd
+ * (e.g. IfClause, Subshell, FuncDecl, WhileClause) — in that case the
+ * caller can't safely reason about every leaf, so the policy should fall
+ * through to `next()` and let the user prompt catch it.
+ *
+ * Intentionally does NOT reject on background, negation, unsafe nodes,
+ * unsafe redirects, comments, or env assignments — those are the caller's
+ * concern. For deny purposes you typically want to flag the leaf
+ * regardless of its wrapping.
+ */
+export function getAllLeafCommands(file: ShellFile): Stmt[] | null {
+  const result: Stmt[] = [];
+  for (const stmt of file.Stmts) {
+    if (!collectAllLeaves(stmt, result)) return null;
+  }
+  return result;
+}
+
+function collectAllLeaves(stmt: Stmt, out: Stmt[]): boolean {
+  const cmd = stmt.Cmd;
+  if (!cmd) return false;
+
+  if (cmd.Type === "CallExpr") {
+    out.push(stmt);
+    return true;
+  }
+
+  if (cmd.Type === "BinaryCmd") {
+    const bin = cmd as BinaryCmd;
+    if (
+      bin.Op !== Op.And &&
+      bin.Op !== Op.Or &&
+      bin.Op !== Op.Pipe &&
+      bin.Op !== Op.PipeAll
+    ) {
+      return false;
+    }
+    return collectAllLeaves(bin.X, out) && collectAllLeaves(bin.Y, out);
+  }
+
+  return false;
 }
 
 export function findTeeTargets(file: ShellFile): string[] {
@@ -603,6 +669,44 @@ export function findWriteCommandTargets(file: ShellFile): string[] {
     });
   }
   return targets;
+}
+
+/**
+ * Commands that are provably side-effect-free:
+ * - No filesystem writes
+ * - No environment or cwd mutation
+ * - No network activity
+ * - No code execution (except parse-only modes like php -l)
+ *
+ * The value is either null (any args allowed) or a Set of
+ * required first arguments (subcommand/flag constraints).
+ */
+export const PURE_COMMANDS: Map<string, Set<string> | null> = new Map([
+  ["clear", null], // clears terminal screen
+  ["date", null], // prints date/time
+  ["env", null], // prints environment (redirects rejected by AST layer)
+  ["hostname", null], // prints hostname
+  ["id", null], // prints user/group info
+  ["php", new Set(["-l"])], // lint mode only — parses, never executes
+  ["printenv", null], // prints environment variables
+  ["echo", null], // stdout only (redirects rejected by AST layer)
+  ["test", null], // evaluates conditions, no side effects
+  ["true", null], // always succeeds, no side effects
+  ["false", null], // always fails, no side effects
+  ["pwd", null], // prints cwd, no side effects
+  ["sleep", null], // waits, no side effects
+  ["uname", null], // prints system info
+  ["uptime", null], // prints system uptime
+  ["which", null], // prints command path
+  ["whoami", null], // prints current user
+]);
+
+export function isPureCommand(tokens: string[]): boolean {
+  if (tokens.length === 0) return false;
+  const constraint = PURE_COMMANDS.get(tokens[0]);
+  if (constraint === undefined) return false; // command not in allowlist
+  if (constraint === null) return true; // any args allowed
+  return tokens.length > 1 && constraint.has(tokens[1]); // required subcommand
 }
 
 export function findGitSubcommands(file: ShellFile): string[] {

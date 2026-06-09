@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ALLOW, NEXT, type ToolCall } from "toolgate";
+import { ALLOW, NEXT, type ToolCall } from "@brycehanscomb/toolgate";
 import allowTaskCrud from "../allow-task-crud";
 
 const PROJECT = "/home/user/project";
@@ -11,7 +11,7 @@ const makeCall = (tool: string, args: Record<string, unknown> = {}): ToolCall =>
 });
 
 describe("allow-task-crud", () => {
-  for (const tool of ["TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskStop"]) {
+  for (const tool of ["TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop"]) {
     it(`allows ${tool}`, async () => {
       const result = await allowTaskCrud.handler(makeCall(tool));
       expect(result.verdict).toBe(ALLOW);

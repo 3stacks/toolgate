@@ -27,10 +27,11 @@ Use Bun exclusively — not Node.js, npm, yarn, or pnpm. Bun auto-loads `.env`.
 - **`types.ts`** — `ToolCall`, `CallContext`, `VerdictResult`, `Middleware`, `Policy` type definitions
 - **`verdicts.ts`** — Symbol-based verdict system: `ALLOW`, `DENY`, `NEXT` with helpers `allow()`, `deny(reason?)`, `next()`
 - **`policy.ts`** — `definePolicy()` and `runPolicy()` — sequential policy chain, returns first non-NEXT verdict
-- **`config.ts`** — Loads project config (`./toolgate.config.ts` or `./.claude/toolgate.config.ts`) then built-in policies, concatenates policy arrays
+- **`config.ts`** — Walks from cwd up to `$HOME` collecting configs. At each level, loads `toolgate.config.local.ts` (personal, gitignored) before `toolgate.config.ts` (committed, team-shared); prefers `./` over `./.claude/`. Built-in policies are appended last.
 - **`runner.ts`** — Bridges Claude Code hook stdin/stdout protocol to the policy engine
-- **`cli.ts`** — Subcommands: `run` (hook handler), `init` (setup), `test` (dry-run), `list` (show loaded policies)
+- **`cli.ts`** — Subcommands: `run` (hook handler), `init` (setup), `test` (dry-run), `list` (show loaded policies), `logs` (show log file paths)
 - **`list-cmd.ts`** — Lists all loaded policies with names and descriptions
+- **`logs-cmd.ts`** — Prints Claude Code log file locations (`permission-requests.jsonl`, `tool-failures.jsonl`)
 - **`testing.ts`** — `testPolicy()` assertion helper for policy test cases
 
 ### Built-in Policies (`policies/`)
@@ -38,6 +39,20 @@ Use Bun exclusively — not Node.js, npm, yarn, or pnpm. Bun auto-loads `.env`.
 Each policy is a `Policy` object with `name`, `description`, and `handler`. The handler is a `Middleware` function that returns `next()` to pass through, `allow()` to permit, or `deny(reason)` to block.
 
 Built-in policies are exported from `policies/index.ts` and automatically appended after any project-level policies. Project configs (`toolgate.config.ts`) can add extra policies via `definePolicy([...])`. Order matters — first non-NEXT verdict wins.
+
+### Disabling Policies
+
+A config can disable any named policy (builtin or inherited from a parent config) via a named `disable` export:
+
+```ts
+// toolgate.config.ts
+export default [myPolicy]
+export const disable = ['Deny bash grep']
+```
+
+Names must match the `name` field on the target `Policy` exactly. Unknown names are silently ignored.
+
+Use `toolgate disable` to interactively toggle policies on/off, or `toolgate disable --json` to dump the full policy state (names, sources, disable status) for debugging.
 
 ### Adding/Renaming Policies
 
@@ -47,7 +62,7 @@ When creating a new policy or renaming an existing one, you **must** update `pol
 
 - **Whitelist approach**: Policies explicitly allow known-safe patterns; everything else falls through as `next()` (prompts user)
 - **Shell command safety**: Use `shfmt --tojson` (via `policies/parse-bash-ast.ts`) to parse Bash commands into typed ASTs. Use `safeBashCommand()` for simple commands, `safeBashCommandOrPipeline()` for commands that may pipe to safe filters, or `getAndChainSegments()` to decompose `&&` chains into leaf statements. These reject unsafe patterns (substitution, chaining, background, unsafe redirects) at the AST level.
-- **Self-imports in tests**: Policy tests import from `"toolgate"` (package self-reference) instead of relative `../../../src` paths
+- **Self-imports in tests**: Policy tests import from `"@brycehanscomb/toolgate"` (package self-reference) instead of relative `../../../src` paths
 - **Policy handlers are async**: All handlers return `Promise<VerdictResult>`
 - **Testing policy handlers directly**: Policy tests call `policyObj.handler(call)` to test the handler function
 
@@ -99,6 +114,10 @@ New policies must be inserted at the correct position. First non-`next()` verdic
 | Command can be safely parsed with `safeBashCommand` | Command is hard to scope safely (e.g., `xargs`) |
 | You want deny semantics with a message | Simple allow is sufficient |
 
+## Versioning
+
+**Bump `version` in `package.json` before pushing to remote.** Every push must include a version bump — patch for fixes, minor for new policies or features, major for breaking changes. If you forget, the push should be rejected or amended.
+
 ## Gotchas
 
 **Never remove an import before replacing its usages in a toolgate config.** If the config file has a syntax/reference error, toolgate evaluation itself fails — which blocks *all* subsequent tool calls (including the ones needed to finish the fix). Always replace usages first, then clean up the import, or do both in a single edit.
@@ -114,3 +133,26 @@ toolgate audit --json   # machine-readable
 ```
 
 This identifies redundant rules (already covered by policies), needed rules (candidates for new policies), and denied rules (conflicts with deny policies).
+
+## Managing Disabled Policies
+
+Use `toolgate disable` to interactively toggle which policies are disabled in a config:
+
+```bash
+toolgate disable           # interactive TUI, edits nearest config
+toolgate disable --local   # target toolgate.config.local.ts
+toolgate disable --shared  # target toolgate.config.ts
+toolgate disable --json    # dump all policies + disable state as JSON
+```
+
+The `--json` output includes each policy's name, description, source, disabled status, and which config disables it — useful for LLM-assisted debugging of policy behavior.
+
+## Log File Locations
+
+Use `toolgate logs` to print the paths to Claude Code's log files:
+
+```bash
+toolgate logs
+```
+
+This outputs the paths to `~/.claude/permission-requests.jsonl` (tool calls that required user approval) and `~/.claude/tool-failures.jsonl` (tool calls that failed after execution).

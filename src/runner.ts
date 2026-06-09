@@ -1,9 +1,14 @@
+import { appendFile } from 'fs/promises'
+import { homedir } from 'os'
+import { join } from 'path'
 import type { ToolCall, VerdictResult } from './types'
-import { ALLOW, DENY, NEXT } from './verdicts'
+import { ALLOW, ASK, DENY, NEXT } from './verdicts'
 import { loadConfigs } from './config'
 import { runPolicy } from './policy'
 import { isSuspended } from './suspend'
 import { loadAdditionalDirs } from './project-dirs'
+
+const PERMISSION_LOG = join(homedir(), '.claude', 'permission-requests.jsonl')
 interface HookInput {
   tool_name: string
   tool_input: Record<string, any>
@@ -21,12 +26,13 @@ interface HookResponse {
 }
 
 export function buildToolCall(input: HookInput): ToolCall {
-  const projectRoot = process.env.CLAUDE_PROJECT_DIR || input.cwd
+  const cwd = input.cwd || process.cwd()
+  const projectRoot = process.env.CLAUDE_PROJECT_DIR || cwd
   return {
     tool: input.tool_name,
     args: input.tool_input,
     context: {
-      cwd: input.cwd,
+      cwd,
       env: Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined)) as Record<string, string>,
       projectRoot,
       additionalDirs: loadAdditionalDirs(projectRoot),
@@ -54,6 +60,16 @@ export function buildHookResponse(verdict: VerdictResult): HookResponse {
     }
   }
 
+  if (verdict.verdict === ASK) {
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'ask',
+        permissionDecisionReason: ('reason' in verdict && verdict.reason) || 'toolgate: approval required by policy',
+      },
+    }
+  }
+
   // NEXT — chain exhausted, ask the user
   return {
     hookSpecificOutput: {
@@ -75,6 +91,9 @@ export async function run(): Promise<void> {
     const call = buildToolCall(input)
     const policies = await loadConfigs(call.context.cwd)
     const verdict = await runPolicy(policies, call)
+    if (verdict.verdict === NEXT) {
+      await appendFile(PERMISSION_LOG, JSON.stringify(input) + '\n').catch(() => {})
+    }
     const response = buildHookResponse(verdict)
     process.stdout.write(JSON.stringify(response))
     process.exit(0)
